@@ -43,7 +43,7 @@ req POST /listings "$COMPANY" '{"landCode":"DEMO-RYD-10003","type":"apartment","
 check "joined existing property" true "$(echo "$BODY" | jq .joinedExisting)"; NEWL=$(echo "$BODY" | jq -r .listing.id)
 req GET /properties/p3; check "p3 now has 4 offers" 4 "$(echo "$BODY" | jq '.offers|length')"
 # DB-level guarantee: insert directly, bypassing the API
-DBERR=$(PGPASSWORD=miftah psql -h localhost -U miftah -d miftah -tAc "INSERT INTO listings (property_id,advertiser_id,deal,price,title_ar,title_en,ad_license) VALUES ('p3','c1','sale',1,'x','x','x')" 2>&1 | grep -c listings_one_live_ad_per_land_code)
+DBERR=$(PGPASSWORD=miftah psql -h localhost -U miftah -d ${SMOKE_DB:-miftah} -tAc "INSERT INTO listings (property_id,advertiser_id,deal,price,title_ar,title_en,ad_license) VALUES ('p3','c1','sale',1,'x','x','x')" 2>&1 | grep -c listings_one_live_ad_per_land_code)
 check "database unique index blocks duplicate" 1 "$DBERR"
 req POST /listings "$COMPANY" '{"type":"shop","deal":"rent","price":90000,"districtId":"olaya","area":120}'; check "listing without land code (unidentified)" 201 "$CODE"
 
@@ -83,7 +83,9 @@ req GET /agent/status; check "agent status" 200 "$CODE"
 check "agent reports missing key when unset" "$([ -n "${OPENAI_API_KEY:-}" ] && echo 0 || echo 1)" "$(echo "$BODY" | jq '[.missingConfig[] | select(.=="OPENAI_API_KEY")] | length')"
 agent '{"message":"ابي فيلا في الملقا"}'; check "agent asks follow-up (deal missing)" 0 "$(echo "$BODY" | jq '.reply.matches|length')"
 P=$(echo "$BODY" | jq -c .reply.prefs)
-agent "{\"message\":\"للبيع بحدود ٤ مليون قريبة من مسجد\",\"prefs\":$P}"; check "agent multi-turn returns DB matches" true "$(echo "$BODY" | jq '.reply.matches|length > 0')"
+agent "{\"message\":\"للبيع بحدود ٤ مليون قريبة من مسجد\",\"prefs\":$P}"; check "agent keeps asking before recommending" 0 "$(echo "$BODY" | jq '.reply.matches|length')"
+P=$(echo "$BODY" | jq -c .reply.prefs)
+agent "{\"message\":\"اعرض النتائج\",\"prefs\":$P}"; check "agent multi-turn returns DB matches" true "$(echo "$BODY" | jq '.reply.matches|length > 0')"
 check "agent data source" postgresql "$(echo "$BODY" | jq -r .meta.dataSource)"
 check "top match is the Malqa villa in DB" p1 "$(echo "$BODY" | jq -r '.reply.matches[0].property.id')"
 check "matches respect budget (+10%)" true "$(echo "$BODY" | jq '[.reply.matches[].listing.price <= 4400000] | all')"
@@ -91,8 +93,17 @@ agent '{"message":"ابي شقه للايجار بالنرجس ٣ غرف حدو�
 check "Arabic district with prefix parsed" narjis "$(echo "$BODY" | jq -r '.reply.prefs.districts[0]')"
 agent '{"message":"فلة للبيع بحطين بمليون ونص قريبة من جامعة"}'; check "spoken budget 1.5M" 1500000 "$(echo "$BODY" | jq .reply.prefs.budgetMax)"
 check "university not read as mosque" '["university"]' "$(echo "$BODY" | jq -c .reply.prefs.amenities)"
-agent '{"message":"Office for rent in Al Olaya under 200K"}'; check "English query matches offices" true "$(echo "$BODY" | jq '[.reply.matches[].property.type=="office"] | all and length>0')"
+agent '{"message":"Office for rent in Al Olaya under 200K"}'; P=$(echo "$BODY" | jq -c .reply.prefs)
+agent "{\"message\":\"show me the results\",\"prefs\":$P}"; check "English query matches offices" true "$(echo "$BODY" | jq '[.reply.matches[].property.type=="office"] | all and length>0')"
 agent '{"message":""}'; check "agent validates input" 400 "$CODE"
+
+# --- simulated payments
+LID=$(curl -s $API/properties/p1 | jq -r '.offers[0].id')
+req GET "/payments/quote/$LID"; check "payment quote" sale_deposit "$(echo "$BODY" | jq -r .kind)"
+req POST /payments "$SEEKER" "{\"listingId\":\"$LID\",\"method\":\"mada\",\"last4\":\"0007\",\"payerName\":\"Lama Test\",\"payerIdNo\":\"1012345678\",\"payerPhone\":\"0551234567\",\"otp\":\"000000\"}"; check "payment rejects wrong OTP" 402 "$CODE"
+req POST /payments "$SEEKER" "{\"listingId\":\"$LID\",\"method\":\"mada\",\"last4\":\"0007\",\"payerName\":\"Lama Test\",\"payerIdNo\":\"1012345678\",\"payerPhone\":\"0551234567\",\"otp\":\"123456\",\"total\":1}"; check "payment succeeds" 201 "$CODE"
+check "server recomputes amount (ignores client total)" true "$(echo "$BODY" | jq '.total > 1')"
+req GET /payments "$SEEKER"; check "payer sees receipt" true "$(echo "$BODY" | jq 'length >= 1')"
 
 # --- admin
 req GET /admin/duplicates "$ADMIN"; check "duplicate attempts logged" true "$(echo "$BODY" | jq 'length >= 1')"

@@ -1,4 +1,4 @@
-import { Bell, BadgeCheck, ChevronLeft, ChevronRight, Columns3, Globe, Heart, Info, LayoutDashboard, MessageCircle, RotateCcw, ShieldCheck, Users } from 'lucide-react';
+import { Receipt, Bell, BadgeCheck, ChevronLeft, ChevronRight, Columns3, Globe, Heart, Info, LayoutDashboard, MessageCircle, RotateCcw, ShieldCheck, Users } from 'lucide-react';
 import { useEffect, useState, type ReactNode } from 'react';
 import { useStore } from '../../lib/store';
 import { publicGroups } from '../../lib/selectors';
@@ -52,6 +52,7 @@ export function ProfileScreen() {
       <div className="pad py-5 grid gap-4 narrow">
         <div className="rounded-[20px] bg-surface border border-line divide-y divide-line overflow-hidden">
           {!staff && <Item icon={<Heart size={18} />} label={tx('العقارات المحفوظة', 'Saved properties')} value={num(saved, lang)} onClick={() => nav.push('saved')} />}
+          {!staff && <Item icon={<Receipt size={18} />} label={adv ? tx('المدفوعات والحجوزات', 'Payments & bookings') : tx('مدفوعاتي', 'My payments')} value={num((s.payments ?? []).filter((x) => x.payerId === me.id || x.advertiserId === me.advertiserId).length, lang)} onClick={() => nav.push('payments')} />}
           <Item icon={<Bell size={18} />} label={tx('الإشعارات', 'Notifications')} value={unread ? num(unread, lang) : undefined} onClick={() => nav.push('notifications')} />
           {!staff && <Item icon={<MessageCircle size={18} />} label={tx('الرسائل', 'Messages')} value={num(convs, lang)} onClick={() => nav.setTab('messages')} />}
           {adv && <Item icon={<LayoutDashboard size={18} />} label={tx('لوحة المعلن', 'Advertiser dashboard')} onClick={() => nav.setTab('dashboard')} />}
@@ -67,7 +68,7 @@ export function ProfileScreen() {
           <p>{remote ? tx('متصل بخادم مفتاح وقاعدة PostgreSQL.', 'Connected to the MIFTAH server and PostgreSQL.') : tx('يعمل على نسخة من قاعدة بيانات مفتاح؛ التغييرات تبقى على هذا الجهاز.', 'Runs on a copy of the MIFTAH database; changes stay on this device.')}</p>
           <div className="flex flex-wrap gap-1.5">
             <SimTag>{tx('كود الأرض: محاكاة', 'Land codes: simulated')}</SimTag><SimTag>{tx('رخص فال: محاكاة', 'FAL licences: simulated')}</SimTag>
-            <SimTag>{tx('الخرائط والخدمات القريبة: تجريبية', 'Maps & nearby: demo')}</SimTag><SimTag>{tx('لا مدفوعات حقيقية', 'No real payments')}</SimTag>
+            <SimTag>{tx('الخرائط والخدمات القريبة: تجريبية', 'Maps & nearby: demo')}</SimTag><SimTag>{tx('الدفع: تجريبي بلا خصم فعلي', 'Payments: test mode, nothing charged')}</SimTag>
             {!remote && <SimTag>{tx('ردود المعلنين: محاكاة', 'Advertiser replies: simulated')}</SimTag>}
           </div>
         </div>

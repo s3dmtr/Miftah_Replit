@@ -4,7 +4,8 @@
 // 2) Retrieve: candidate listings come from PostgreSQL (active ads on available properties, SQL-filtered).
 // 3) Rank + explain: the shared scorer ranks candidates and explains every criterion from real fields.
 import { COMMERCIAL, DISTRICTS } from '../../src/data/seed.ts';
-import { parse as ruleParse, respond, type Prefs } from '../../src/lib/agent.ts';
+import { parse as ruleParse, type Prefs } from '../../src/lib/agent.ts';
+import { converse } from '../../src/lib/conversation.ts';
 import type { PoiCat, PropertyType, State } from '../../src/types.ts';
 import { q } from './db.js';
 import { LISTING_COLS, toListing, toProperty } from './mappers.js';
@@ -83,18 +84,18 @@ async function candidates(p: Prefs) {
 export async function chat(message: string, prev: Prefs) {
   const status = agentStatus();
   const rule = ruleParse(message, prev);
-  let prefs = rule.prefs;
+  let hint: Partial<Prefs> | undefined;
   let llmError: string | undefined;
   let usedLlm = false;
   if (!rule.reset) {
     const llm = await llmPrefs(message, prev);
     if (llm?.error) llmError = llm.error;
-    if (llm && !llm.error) { prefs = { ...prefs, ...llm.prefs }; usedLlm = true; }
+    if (llm && !llm.error) { hint = llm.prefs; usedLlm = true; }
   }
-  const c = await candidates(rule.reset ? {} : prefs);
+  const c = await candidates({});
   const state = { listings: c.listings, properties: c.properties } as unknown as State;
-  // respond() re-applies the rule parser on top of `prefs` (idempotent) and ranks the DB candidates.
-  const reply = respond(state, message, rule.reset ? {} : prefs);
+  // converse() runs the consultant dialogue (questions, follow-ups, recommendation) over the DB candidates.
+  const reply = converse(state, message, rule.reset ? {} : prev, hint);
   return {
     reply,
     meta: {

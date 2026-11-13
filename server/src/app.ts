@@ -10,6 +10,7 @@ import { one, pool, q, tx } from './db.js';
 import { ADVERTISER_ROLES, HttpError, STAFF_ROLES, authenticate, errorHandler, h, parse, requireAuth, requireRole, sign, type AuthUser } from './http.js';
 import { LISTING_COLS, iso, toAdvertiser, toListing, toProperty } from './mappers.js';
 import { agentStatus, chat } from './agent.js';
+import { quote, receiptNo, validMobile, validSaudiId, TEST_OTP } from '../../src/lib/payments.ts';
 import { LIVE, adminLog, createListing, findDuplicate, notify, ownedListing, requestStatus, reviewStatus } from './services.js';
 
 export const app = express();
@@ -389,12 +390,76 @@ const prefsSchema = z.object({
   roomsMin: z.number().int().positive().optional(), areaMin: z.number().positive().optional(),
   amenities: z.array(z.enum(['masjid', 'school_middle', 'school_high', 'university', 'hospital', 'pharmacy', 'gym', 'park', 'mall'])).optional(),
   features: z.array(z.string().max(40)).optional(),
+  // conversation memory round-tripped by the client
+  asked: z.array(z.enum(['deal', 'type', 'district', 'budget', 'rooms', 'priority'])).max(10).optional(),
+  last: z.enum(['deal', 'type', 'district', 'budget', 'rooms', 'priority']).optional(),
+  shown: z.array(z.string().max(64)).max(60).optional(),
+  anyDistrict: z.boolean().optional(), noPriority: z.boolean().optional(), noBudget: z.boolean().optional(),
+  family: z.number().int().positive().max(40).optional(), financing: z.boolean().optional(), financingNoted: z.boolean().optional(),
+  focus: z.number().int().min(1).max(10).optional(),
 }).strip();
 
 R.get('/agent/status', h(async (_req, res) => res.json(agentStatus())));
 R.post('/agent/chat', h(async (req, res) => {
   const b = parse(z.object({ message: z.string().trim().min(1).max(1000), prefs: prefsSchema.default({}) }), req.body);
   res.json(await chat(b.message, b.prefs));
+}));
+
+// ---------- simulated payments (booking deposit / first rent payment) ----------
+// The client sends only the card brand + last 4 digits after its own Luhn/expiry checks; the full card number never
+// reaches the server. Amounts are always recomputed here from the listing, never trusted from the client.
+const toPayment = (r: any) => ({
+  id: r.id, receiptNo: r.receipt_no, listingId: r.listing_id, propertyId: r.property_id, advertiserId: r.advertiser_id, payerId: r.payer_id,
+  kind: r.kind, ...(r.installments ? { installments: r.installments } : {}), items: r.items, vat: r.vat, total: r.total,
+  method: r.method, ...(r.last4 ? { last4: r.last4 } : {}), payerName: r.payer_name, payerIdLast4: r.payer_id_last4, payerPhone: r.payer_phone,
+  status: r.status, at: iso(r.created_at),
+});
+R.get('/payments/quote/:listingId', h(async (req, res) => {
+  const n = parse(z.coerce.number().int().refine((x) => [1, 2, 4].includes(x)).default(1), req.query.installments);
+  const l = await one(`SELECT ${LISTING_COLS} FROM listings l WHERE l.id = $1`, [req.params.listingId]);
+  if (!l) throw new HttpError(404, 'not_found', 'Listing not found');
+  const p = await one('SELECT * FROM properties WHERE id = $1', [l.property_id]);
+  res.json({ ...quote(toListing(l), toProperty(p), n), simulated: true });
+}));
+R.post('/payments', requireAuth, h(async (req, res) => {
+  const b = parse(z.object({
+    listingId: z.string().min(1).max(64),
+    installments: z.number().int().refine((x) => [1, 2, 4].includes(x)).default(1),
+    method: z.enum(['mada', 'visa', 'mastercard', 'applepay', 'stcpay']),
+    last4: z.string().regex(/^\d{4}$/).optional(),
+    payerName: z.string().trim().min(3).max(120),
+    payerIdNo: z.string().refine(validSaudiId, 'National ID / Iqama must be 10 digits starting with 1 or 2'),
+    payerPhone: z.string().refine(validMobile, 'Mobile must be 05XXXXXXXX'),
+    otp: z.string().regex(/^\d{6}$/),
+  }), req.body);
+  if (isStaff(req.user)) throw new HttpError(403, 'forbidden', 'Staff accounts cannot make payments');
+  if (b.otp !== TEST_OTP) throw new HttpError(402, 'otp_failed', 'Verification code is incorrect (test code: 123456)');
+  if (['mada', 'visa', 'mastercard'].includes(b.method) && !b.last4) throw new HttpError(400, 'validation_error', 'Card payments need the last 4 digits');
+  const lr = await one(`SELECT ${LISTING_COLS}, row_to_json(p) AS prop FROM listings l JOIN properties p ON p.id = l.property_id WHERE l.id = $1`, [b.listingId]);
+  if (!lr) throw new HttpError(404, 'not_found', 'Listing not found');
+  if (lr.status !== 'active' || lr.prop.availability !== 'available') throw new HttpError(409, 'not_available', 'This ad is no longer available for booking');
+  if (lr.advertiser_id === req.user!.advertiserId) throw new HttpError(400, 'own_listing', 'You cannot pay for your own ad');
+  const listing = toListing(lr), q = quote(listing, toProperty(lr.prop), b.installments);
+  const row = await tx(async (c) => {
+    const r = await one(`INSERT INTO payments (receipt_no, listing_id, property_id, advertiser_id, payer_id, kind, installments, items, vat, total, method, last4, payer_name, payer_id_last4, payer_phone)
+      VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15) RETURNING *`,
+      [receiptNo(Date.now()), listing.id, listing.propertyId, listing.advertiserId, req.user!.id, q.kind, q.installments ?? null, JSON.stringify(q.items), q.vat, q.total,
+        b.method, b.last4 ?? null, b.payerName, b.payerIdNo.slice(-4), b.payerPhone], c);
+    await notify(c, listing.advertiserId, `تم دفع ${q.kind === 'sale_deposit' ? 'عربون حجز' : 'دفعة إيجار'} على إعلانك (إيصال ${r.receipt_no}).`, `A ${q.kind === 'sale_deposit' ? 'booking deposit' : 'rent payment'} was paid on your ad (receipt ${r.receipt_no}).`);
+    await notify(c, req.user!.id, `تم الدفع بنجاح. رقم الإيصال ${r.receipt_no}.`, `Payment successful. Receipt ${r.receipt_no}.`);
+    return r;
+  });
+  res.status(201).json(toPayment(row));
+}));
+R.get('/payments', requireAuth, h(async (req, res) => {
+  const rows = isStaff(req.user) ? await q('SELECT * FROM payments ORDER BY created_at DESC')
+    : await q('SELECT * FROM payments WHERE payer_id = $1 OR advertiser_id = $2 ORDER BY created_at DESC', [req.user!.id, req.user!.advertiserId]);
+  res.json(rows.map(toPayment));
+}));
+R.get('/payments/:id', requireAuth, h(async (req, res) => {
+  const r = await one('SELECT * FROM payments WHERE id = $1 OR receipt_no = $1', [req.params.id]);
+  if (!r || (!isStaff(req.user) && r.payer_id !== req.user!.id && r.advertiser_id !== req.user!.advertiserId)) throw new HttpError(404, 'not_found', 'Payment not found');
+  res.json(toPayment(r));
 }));
 
 // ---------- whole-app snapshot in the prototype's State shape (used by the React store) ----------
@@ -415,6 +480,7 @@ R.get('/state', h(async (req, res) => {
     staffView ? q('SELECT * FROM reports ORDER BY created_at DESC') : Promise.resolve([]),
     staffView ? q('SELECT * FROM admin_log ORDER BY created_at DESC LIMIT 100') : Promise.resolve([]),
   ]);
+  const pays = !u ? [] : staffView ? await q('SELECT * FROM payments ORDER BY created_at DESC') : await q('SELECT * FROM payments WHERE payer_id = $1 OR advertiser_id = $2 ORDER BY created_at DESC', [u.id, u.advertiserId]);
   const convIds = u ? await q('SELECT id FROM conversations WHERE seeker_id = $1 OR advertiser_id = $2 ORDER BY created_at DESC', [u.id, u.advertiserId]) : [];
   const state: Omit<State, 'lang'> & { lang?: State['lang'] } = {
     version: 3,
@@ -433,6 +499,7 @@ R.get('/state', h(async (req, res) => {
     notices: notes.map((n) => ({ id: n.id, to: n.recipient, text: { ar: n.text_ar, en: n.text_en }, at: iso(n.created_at), read: n.read })),
     reports: reports.map((r) => ({ id: r.id, listingId: r.listing_id, by: r.by_user, reason: r.reason, at: iso(r.created_at), open: r.open })),
     adminLog: logs.map((a) => ({ id: a.id, by: a.by_user, action: a.action, at: iso(a.created_at) })),
+    payments: pays.map(toPayment),
   };
   res.json(state);
 }));

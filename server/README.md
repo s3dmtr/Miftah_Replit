@@ -30,7 +30,8 @@ plus every other advertiser as `<id>@miftah.demo` (c2, c3, m2, o2, m3, c4).
 | Reports | POST /listings/:id/reports | signed in |
 | Admin | GET /admin/status-requests, POST /admin/status-requests/:id/approve or /reject, GET /admin/reports, POST /admin/reports/:id/resolve, GET /admin/duplicates, GET /admin/log | admin, supervisor |
 | Admin | GET /admin/advertisers, POST /admin/advertisers/:id/verify, GET /admin/transactions, GET /admin/users | admin |
-| AI agent | GET /agent/status, POST /agent/chat `{ message, prefs }` → `{ reply, meta }` | public |
+| AI agent | GET /agent/status, POST /agent/chat `{ message, prefs }` → `{ reply, meta }` (conversational: asks one question at a time, then recommends) | public |
+| Payments (simulated) | GET /payments/quote/:listingId?installments=1\|2\|4, POST /payments, GET /payments, GET /payments/:id | quote public; others signed in (payer, the ad's advertiser, staff) |
 | Frontend sync | GET /state (snapshot in the React app's `State` shape, scoped to the caller) | public / signed in |
 
 Errors are JSON: `{ "error": "<code>", "message": "...", ...extra }` (400 validation_error with `issues`, 401, 403, 404, 409 duplicate with `existingListingId`).
@@ -71,3 +72,13 @@ Note: Node's `fetch` does not use an HTTP proxy, so behind a corporate proxy Ope
 - `npx tsx scripts/export-snapshot.ts` — read-only export of the live DB to `../src/data/snapshot.json` (no emails, no password hashes; skips records created by automated tests).
 - `DATABASE_URL=... npx tsx scripts/restore-snapshot.ts [--force]` — rebuilds a database from that snapshot. Refuses a non-empty DB unless `--force`. Demo logins get `SEED_PASSWORD`.
 - Raw `pg_dump` files are git-ignored (they contain password hashes and emails).
+
+## Simulated payments
+- **Sale:** booking deposit = 1% of the price (minimum SAR 10,000), held by MIFTAH and deducted at title transfer; the
+  receipt notes the remaining amount and the 5% real estate transaction tax due at transfer.
+- **Rent:** yearly, 2 or 4 installments; the first is paid now plus a SAR 250 contract documentation fee (Ejar, simulated).
+  VAT 15% applies to fees, and to the rent itself only for commercial property.
+- `POST /payments` takes `listingId, installments, method (mada|visa|mastercard|applepay|stcpay), last4, payerName,
+  payerIdNo, payerPhone, otp`. The server recomputes the amount from the listing (client totals are ignored), checks the
+  ID/phone format and the OTP (test code `123456`), stores only the last 4 digits of the card and ID, and notifies the
+  advertiser. Migration `002_payments.sql` (additive). **No payment gateway is connected and nothing is charged.**

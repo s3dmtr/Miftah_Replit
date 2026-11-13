@@ -5,7 +5,8 @@ import { useEffect, useRef, useState } from 'react';
 import { districtById, FEATURE_LABEL, POI_LABEL, TYPE_LABEL } from '../../data/seed';
 import { useStore } from '../../lib/store';
 import { api } from '../../lib/api';
-import { fmt, isArabic, respond, type AgentReply, type Match, type Prefs } from '../../lib/agent';
+import { fmt, isArabic, type AgentReply, type Match, type Prefs } from '../../lib/agent';
+import { AGENT_GREETING, converse } from '../../lib/conversation';
 import { PropertyArt } from '../../components/PropertyArt';
 import { num } from '../../components/ui';
 import type { Lang } from '../../types';
@@ -39,12 +40,14 @@ export function AgentScreen() {
         .finally(() => setTyping(false));
       return;
     }
+    const reply = converse(s, q, prefs);
+    // Reply after a "typing" pause proportional to its length, like a person would.
+    const delay = Math.min(2600, 700 + reply.text[rl].length * 9);
     window.setTimeout(() => {
-      const reply = respond(s, q, prefs);
       setPrefs(reply.prefs);
       setTurns((x) => [...x, { role: 'agent', reply, lang: rl }]);
       setTyping(false);
-    }, 700);
+    }, delay);
   };
   useEffect(() => { if (pending) { const q = pending; pending = null; send(q); } /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, []);
   useEffect(() => { endRef.current?.scrollIntoView({ behavior: 'smooth', block: 'end' }); }, [turns, typing]);
@@ -62,12 +65,13 @@ export function AgentScreen() {
 
   const last = [...turns].reverse().find((x) => x.role === 'agent') as Extract<Turn, { role: 'agent' }> | undefined;
   const chips = last ? last.reply.chips.map((c) => c[last.lang]) : [
-    tx('أبي فيلا للشراء في الملقا بحدود ٤ مليون قريبة من مسجد', 'Villa to buy in Al Malqa under 4M near a masjid'),
-    tx('شقة للإيجار شمال الرياض ٣ غرف حدود ٧٠ ألف', 'Apartment for rent in north Riyadh, 3 beds, up to 70K'),
-    tx('محل تجاري للإيجار بالعليا', 'Shop for rent in Al Olaya'),
+    tx('السلام عليكم', 'Hello'),
+    tx('أبي أشتري بيت لعائلتي', 'I want to buy a home for my family'),
+    tx('أدور شقة للإيجار قريب من مدارس', 'Looking to rent an apartment near schools'),
+    tx('أبي مكتب لشركتي في العليا', 'I need an office for my company in Al Olaya'),
   ];
   const sub = remote ? (mode?.startsWith('openai') ? tx('بيانات حية · OpenAI', 'Live data · OpenAI') : tx('بيانات حية من PostgreSQL', 'Live PostgreSQL data'))
-    : tx('يعمل على نسخة قاعدة البيانات · محلل قواعد', 'Database snapshot · rule-based parser');
+    : tx('محادثة ذكية على بيانات مفتاح', 'Conversational search on MIFTAH data');
 
   return (
     <div className="screen">
@@ -81,11 +85,14 @@ export function AgentScreen() {
       )}
       <div className="scroll pad py-4 grid gap-4 content-start narrow" aria-live="polite">
         {turns.length === 0 && (
-          <div className="grid justify-items-center text-center gap-3 pt-6 pb-2">
+          <div className="grid gap-4 pt-4 pb-2">
+          <div className="grid justify-items-center text-center gap-3">
             <span className="grid place-items-center h-16 w-16 rounded-[22px] bg-[#172B45] text-[#B69B72] shadow-[0_10px_30px_rgba(23,43,69,.3)]"><Sparkles size={28} /></span>
-            <p className="text-[20px] font-bold">{tx('صف عقارك المثالي', 'Describe your ideal property')}</p>
-            <p className="text-[13.5px] text-muted max-w-[32ch]">{tx('اكتب بالعربية أو الإنجليزية. سأسأل عن الميزانية والحي، ثم أرتّب العقارات وأشرح سبب كل ترشيح، مع المسافة إلى المسجد والمدارس والمستشفى.', 'Write in Arabic or English. I will ask about budget and district, rank properties, and explain each match, including distance to masjids, schools and hospitals.')}</p>
+            <p className="text-[20px] font-bold">{tx('مستشارك العقاري', 'Your property consultant')}</p>
+            <p className="text-[13.5px] text-muted max-w-[34ch]">{tx('تكلّم معي بأسلوبك. بسألك كم سؤال عن احتياجك، ثم أرشّح لك الأنسب وأشرح السبب.', 'Talk to me naturally. I will ask a few questions about what you need, then recommend the best fit and explain why.')}</p>
             <div className="flex flex-wrap justify-center gap-1.5"><SimTag>{tx('لا نضمن تطابقاً تاماً', 'No perfect match guaranteed')}</SimTag>{!remote && <SimTag>{tx('بدون OpenAI', 'No OpenAI')}</SimTag>}</div>
+          </div>
+          <div className="tab-in max-w-[88%] w-fit rounded-[20px] rounded-ss-[6px] bg-surface border border-line px-4 py-2.5 text-[14.5px]">{L(AGENT_GREETING)}</div>
           </div>
         )}
         {turns.map((x, i) => x.role === 'user' ? (
@@ -125,7 +132,8 @@ function MatchCard({ m, l, rank }: { m: Match; l: Lang; rank: number }) {
       <button type="button" onClick={() => nav.push('property', { id: m.property.id })} className="tap w-full flex gap-3 p-2.5 text-start">
         <div className="relative h-[86px] w-[100px] shrink-0 rounded-[14px] overflow-hidden">
           <PropertyArt type={m.property.type} seed={m.listing.imageSeed} className="h-full w-full" />
-          <span className="absolute top-1.5 start-1.5 h-6 w-6 rounded-full bg-[#172B45] text-[#F8F6F1] grid place-items-center text-[11px] font-bold num">{num(rank, l)}</span>
+          {rank === 1 ? <span className="absolute top-1.5 start-1.5 rounded-full bg-[#B69B72] text-[#172B45] px-2 py-0.5 text-[10.5px] font-bold">{ar ? 'ترشيحي الأول' : 'Top pick'}</span>
+            : <span className="absolute top-1.5 start-1.5 h-6 w-6 rounded-full bg-[#172B45] text-[#F8F6F1] grid place-items-center text-[11px] font-bold num">{num(rank, l)}</span>}
         </div>
         <div className="min-w-0 flex-1">
           <div className="flex items-start justify-between gap-2">

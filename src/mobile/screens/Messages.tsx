@@ -2,6 +2,7 @@ import { EyeOff, MessageCircle, Send } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
 import { useStore } from '../../lib/store';
 import { hasBad, moderate } from '../../lib/moderation';
+import { advertiserReply, suggestions } from '../../lib/advertiserBot';
 import { PropertyArt } from '../../components/PropertyArt';
 import { money } from '../../components/ui';
 import type { Conversation } from '../../types';
@@ -55,19 +56,15 @@ export function InboxScreen({ root = true }: { root?: boolean }) {
   );
 }
 
-const AUTO = [
-  { ar: 'شكراً لتواصلك، العرض ما زال متاحاً. متى يناسبك موعد المعاينة؟', en: 'Thanks for reaching out, the offer is still available. When suits you for a viewing?' },
-  { ar: 'تمام، سأرسل لك التفاصيل والموقع قريباً.', en: 'Great, I will send you the details and location shortly.' },
-];
-
 export function ChatScreen({ id }: { id: string }) {
   const { s, act, ops, remote, L, lang, me } = useStore();
   const nav = useNav();
   const tx = useTx();
   const [text, setText] = useState('');
+  const [typing, setTyping] = useState(false);
   const endRef = useRef<HTMLDivElement>(null);
   const c = s.conversations.find((x) => x.id === id);
-  useEffect(() => { endRef.current?.scrollIntoView({ block: 'end' }); }, [c?.messages.length]);
+  useEffect(() => { endRef.current?.scrollIntoView({ block: 'end', behavior: 'smooth' }); }, [c?.messages.length, typing]);
   if (!c) return <div className="screen"><AppHeader title={tx('المحادثة', 'Chat')} /><Empty icon={<MessageCircle size={26} />} title={tx('المحادثة غير موجودة', 'Conversation not found')} /></div>;
   const l = s.listings.find((x) => x.id === c.listingId)!;
   const p = s.properties.find((x) => x.id === l.propertyId)!;
@@ -75,19 +72,28 @@ export function ChatScreen({ id }: { id: string }) {
   const otherName = asAdvertiser ? L(s.users.find((u) => u.id === c.seekerId)?.name ?? { ar: 'باحث', en: 'Seeker' }) : L(s.advertisers.find((a) => a.id === c.advertiserId)!.name);
   const mine = (from: string) => from === me.id || from === me.advertiserId;
 
-  const send = () => {
-    const v = text.trim();
-    if (!v) return;
+  const send = (raw?: string) => {
+    const v = (raw ?? text).trim();
+    if (!v || typing) return;
     void ops.sendMessage(c.id, v);
     setText('');
     if (!remote && !asAdvertiser) {
-      // Offline demo only: a simulated advertiser reply. With the API, replies come from the real advertiser account.
-      window.setTimeout(() => act((d) => {
-        const cv = d.conversations.find((x) => x.id === c.id)!;
-        cv.messages.push({ id: `auto${Date.now().toString(36)}`, from: cv.advertiserId, text: AUTO[cv.messages.length % 2][lang], at: new Date().toISOString() });
-      }), 1500);
+      // Offline demo only: the advertiser's reply is generated from the real listing data and this chat's history
+      // (negotiation, viewing slots, features, location, payment terms). With the API, the real advertiser replies.
+      setTyping(true);
+      const conv = { ...c, messages: [...c.messages, { id: 'tmp', from: me.id, text: v, at: new Date().toISOString() }] };
+      const reply = advertiserReply(s, conv, v);
+      window.setTimeout(() => {
+        act((d) => {
+          const cv = d.conversations.find((x) => x.id === c.id)!;
+          cv.messages.push({ id: `adv${Date.now().toString(36)}`, from: cv.advertiserId, text: reply, at: new Date().toISOString() });
+        });
+        setTyping(false);
+      }, Math.min(3200, 900 + reply.length * 14));
     }
   };
+  const sugg = suggestions(s, c, asAdvertiser, lang);
+  const canPay = !asAdvertiser && me.role !== 'admin' && me.role !== 'supervisor' && l.status === 'active' && p.availability === 'available';
 
   return (
     <div className="screen">
@@ -97,7 +103,7 @@ export function ChatScreen({ id }: { id: string }) {
         <div className="min-w-0 flex-1"><p className="text-[13px] font-semibold truncate">{L(l.title)}</p><p className="text-[12px] num text-goldink font-bold">{money(l.price, lang)}</p></div>
       </button>
       <div className="scroll pad py-4 grid gap-2 content-start narrow">
-        {!remote && <div className="justify-self-center"><SimTag>{tx('ردود المعلن هنا محاكاة', 'Advertiser replies here are simulated')}</SimTag></div>}
+        {!remote && !asAdvertiser && <div className="justify-self-center"><SimTag>{tx('في العرض التجريبي ردود المعلن مولّدة آلياً من بيانات الإعلان', 'In this demo, advertiser replies are generated from the ad data')}</SimTag></div>}
         {c.messages.map((m) => {
           const parts = moderate(m.text);
           const flagged = parts.some((x) => x.bad);
@@ -111,9 +117,19 @@ export function ChatScreen({ id }: { id: string }) {
             </div>
           );
         })}
+        {typing && (
+          <div className="tab-in flex items-center gap-2">
+            <div className="rounded-[18px] rounded-ss-[6px] bg-surface border border-line px-3.5 py-3 flex gap-1.5">{[0, 1, 2].map((k) => <span key={k} className="h-2 w-2 rounded-full bg-gold" style={{ animation: `dot 1.2s ${k * 0.15}s infinite` }} />)}</div>
+            <span className="text-[11.5px] text-muted">{otherName} {tx('يكتب…', 'is typing…')}</span>
+          </div>
+        )}
         <div ref={endRef} />
       </div>
-      <form className="shrink-0 border-t border-line bg-bg pad py-2.5 grid gap-1.5 safe-bottom" onSubmit={(e) => { e.preventDefault(); send(); }}>
+      <div className="shrink-0 hscroll gap-2 px-[18px] pt-2 bg-bg border-t border-line">
+        {canPay && <button type="button" onClick={() => nav.push('pay', { listingId: l.id })} className="tap h-8 px-3 rounded-full bg-gold text-[#172B45] text-[12.5px] font-bold whitespace-nowrap">{l.deal === 'sale' ? tx('احجز بالعربون', 'Book with deposit') : tx('ادفع الإيجار', 'Pay rent')}</button>}
+        {sugg.map((x) => <button key={x} type="button" onClick={() => send(x)} className="tap h-8 px-3 rounded-full border border-line bg-surface text-[12.5px] font-semibold whitespace-nowrap">{x}</button>)}
+      </div>
+      <form className="shrink-0 bg-bg pad py-2.5 grid gap-1.5 safe-bottom" onSubmit={(e) => { e.preventDefault(); send(); }}>
         {hasBad(text) && <p className="text-[11.5px] text-warn">{tx('رسالتك تحتوي كلمات ستُخفى عن الطرف الآخر.', 'Some words will be hidden from the other person.')}</p>}
         <div className="flex gap-2">
           <input id="m-chat-input" dir="auto" value={text} onChange={(e) => setText(e.target.value)} placeholder={tx('اكتب رسالة…', 'Write a message…')}

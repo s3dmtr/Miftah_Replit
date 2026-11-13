@@ -74,6 +74,8 @@ Never commit `.env` files; only the `*.env.example` templates are tracked.
 
 ## Simulated / not yet integrated
 
+Payments (booking deposit / rent payment flow with receipt; test cards and OTP `123456`, nothing is charged),
+advertiser chat replies in the offline demo (generated from the listing data; with the API, real advertisers reply),
 Riyadh Municipality land-code portal, REGA/FAL and Wathq licence checks, Google Maps and nearby places (demo points),
 payments and binding transactions (none), photo uploads (images are URLs; the app draws generated illustrations).
 Company commission assumes 20% of a 2.5% brokerage fee until the business rule is confirmed.

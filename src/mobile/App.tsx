@@ -14,6 +14,7 @@ import { AccountsScreen, NotificationsScreen, ProfileScreen, SavedScreen } from 
 import { DashboardScreen } from './screens/Dashboard';
 import { AddListingScreen } from './screens/AddListing';
 import { ReviewsScreen } from './screens/Reviews';
+import { PaymentScreen, PaymentsScreen, ReceiptScreen } from './screens/Payment';
 import './mobile.css';
 
 function Splash({ onDone }: { onDone: () => void }) {
@@ -122,6 +123,9 @@ function renderRoute(r: Route) {
     case 'search': return <SearchScreen filters={p.filters} />;
     case 'accounts': return <AccountsScreen />;
     case 'messages': return <InboxScreen root={false} />;
+    case 'pay': return <PaymentScreen listingId={p.listingId} />;
+    case 'receipt': return <ReceiptScreen id={p.id} fresh={p.fresh} />;
+    case 'payments': return <PaymentsScreen />;
     default: return null;
   }
 }
@@ -252,8 +256,8 @@ export function MobileApp() {
           <h1 className="text-[32px] font-bold text-[#F8F6F1] leading-tight mt-3">{ar ? 'عقارك يبدأ بمفتاح' : 'Your property starts with Miftah'}</h1>
           <p className="text-[14px] text-[#E8DDC9]/75 mt-3 leading-relaxed">{ar ? 'نموذج تفاعلي كامل. جرّب البحث بالعربية مع مساعد مفتاح، وقارن عروض المعلنين لنفس العقار، وراسل المعلن، ثم بدّل الحساب من «حسابي» لتجربة لوحة المعلن والمراجعة.' : 'A fully interactive prototype. Search in Arabic with the Miftah agent, compare advertisers’ offers on one property, message an advertiser, then switch accounts in Profile to try the advertiser and reviewer flows.'}</p>
           <ul className="mt-5 grid gap-2 text-[13px] text-[#E8DDC9]/80">
-            {(ar ? ['البيانات: نسخة من قاعدة PostgreSQL الخاصة بمفتاح', 'كود الأرض ورخص فال: محاكاة', 'الخرائط والخدمات القريبة: بيانات تجريبية', 'مساعد الذكاء: محلل عربي/إنجليزي (بدون OpenAI)', 'لا مدفوعات ولا صفقات ملزمة']
-              : ['Data: a copy of MIFTAH’s PostgreSQL database', 'Land codes and FAL licences: simulated', 'Maps and nearby places: demo data', 'AI agent: Arabic/English parser (no OpenAI)', 'No payments or binding transactions']).map((x) => (
+            {(ar ? ['البيانات: نسخة من قاعدة PostgreSQL الخاصة بمفتاح', 'كود الأرض ورخص فال: محاكاة', 'الخرائط والخدمات القريبة: بيانات تجريبية', 'مساعد الذكاء: محادثة عربية/إنجليزية (بدون OpenAI)', 'الدفع والإيصالات: تجريبي، لا خصم فعلي', 'ردود المعلن في العرض: مولّدة من بيانات الإعلان']
+              : ['Data: a copy of MIFTAH’s PostgreSQL database', 'Land codes and FAL licences: simulated', 'Maps and nearby places: demo data', 'AI agent: Arabic/English conversation (no OpenAI)', 'Payments & receipts: test mode, nothing charged', 'Advertiser replies in the demo: generated from ad data']).map((x) => (
               <li key={x} className="flex gap-2"><span className="mt-1.5 h-1.5 w-1.5 rounded-full bg-[#B69B72] shrink-0" />{x}</li>
             ))}
           </ul>

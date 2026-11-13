@@ -1,6 +1,7 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { baseState } from '../data/snapshot';
-import type { L10n, Lang, State } from '../types';
+import type { L10n, Lang, Payment, PayMethod, State } from '../types';
+import { quote, receiptNo } from './payments';
 import { DICT, type Key } from './i18n';
 import { api, ApiError, remote, token } from './api';
 import { createListing as localCreate, log, requestStatus as localRequest, reviewStatus as localReview, type CreateInput, type CreateResult } from './rules';
@@ -35,7 +36,9 @@ export interface Ops {
   sendMessage(convId: string, text: string): Promise<void>;
   view(listingId: string): void;
   markNotificationsRead(): void;
+  createPayment(input: PayInput): Promise<Payment>;
 }
+export interface PayInput { listingId: string; installments: number; method: PayMethod; last4?: string; payerName: string; payerIdNo: string; payerPhone: string; otp: string }
 
 interface Ctx {
   s: State;
@@ -149,6 +152,28 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         }),
         view: (id) => act((d) => { const x = d.listings.find((y) => y.id === id); if (x) x.views += 1; }),
         markNotificationsRead: () => act((d) => { const u = me(); d.notices.forEach((n) => { if (n.to === u.id || n.to === u.advertiserId) n.read = true; }); }),
+        createPayment: async (inp) => act((d) => {
+          // Simulated gateway: amounts are recomputed from the listing, never taken from the form.
+          const l = d.listings.find((x) => x.id === inp.listingId)!;
+          const prop = d.properties.find((x) => x.id === l.propertyId)!;
+          const q = quote(l, prop, inp.installments);
+          const u = me();
+          const pay: Payment = {
+            id: `pay${Date.now().toString(36)}`, receiptNo: receiptNo(Date.now()), listingId: l.id, propertyId: prop.id, advertiserId: l.advertiserId, payerId: u.id,
+            kind: q.kind, ...(q.installments ? { installments: q.installments } : {}), items: q.items, vat: q.vat, total: q.total,
+            method: inp.method, ...(inp.last4 ? { last4: inp.last4 } : {}), payerName: inp.payerName, payerIdLast4: inp.payerIdNo.slice(-4), payerPhone: inp.payerPhone,
+            status: 'paid', at: new Date().toISOString(),
+          };
+          (d.payments ??= []).unshift(pay);
+          const kindAr = q.kind === 'sale_deposit' ? 'عربون حجز' : 'دفعة إيجار', kindEn = q.kind === 'sale_deposit' ? 'booking deposit' : 'rent payment';
+          d.notices.unshift({ id: `n${Date.now()}a`, to: l.advertiserId, text: { ar: `تم دفع ${kindAr} على إعلانك (إيصال ${pay.receiptNo}).`, en: `A ${kindEn} was paid on your ad (receipt ${pay.receiptNo}).` }, at: pay.at, read: false });
+          d.notices.unshift({ id: `n${Date.now()}b`, to: u.id, text: { ar: `تم الدفع بنجاح. رقم الإيصال ${pay.receiptNo}.`, en: `Payment successful. Receipt ${pay.receiptNo}.` }, at: pay.at, read: false });
+          // Let the advertiser know in the chat thread too.
+          let c = d.conversations.find((x) => x.listingId === l.id && x.seekerId === u.id);
+          if (!c) { c = { id: `cv${Date.now().toString(36)}`, listingId: l.id, seekerId: u.id, advertiserId: l.advertiserId, messages: [] }; d.conversations.unshift(c); }
+          c.messages.push({ id: `m${Date.now().toString(36)}p`, from: u.id, text: d.lang === 'ar' ? `تم دفع ${kindAr} عن طريق مفتاح، رقم الإيصال ${pay.receiptNo}.` : `I paid the ${kindEn} through MIFTAH, receipt ${pay.receiptNo}.`, at: pay.at });
+          return pay;
+        }),
       };
     }
     return {
@@ -199,6 +224,12 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       markNotificationsRead: () => {
         act((d) => { const u = me(); d.notices.forEach((n) => { if (n.to === u.id || n.to === u.advertiserId) n.read = true; }); });
         api('POST', '/notifications/read').catch(() => {});
+      },
+      createPayment: async (inp) => {
+        const { last4, ...rest } = inp;
+        const pay = await api<Payment>('POST', '/payments', { ...rest, ...(last4 ? { last4 } : {}) });
+        await refresh();
+        return pay;
       },
     };
   }, [act, refresh]);

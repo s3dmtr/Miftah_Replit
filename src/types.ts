@@ -74,6 +74,18 @@ export interface Transaction { id: string; propertyId: string; listingId: string
 export interface Notice { id: string; to: string; text: L10n; at: string; read: boolean }
 export interface Report { id: string; listingId: string; by: string; reason: string; at: string; open: boolean }
 
+export type PayMethod = 'mada' | 'visa' | 'mastercard' | 'applepay' | 'stcpay';
+export interface PayItem { label: L10n; amount: number; note?: L10n }
+/** A simulated payment (booking deposit or rent payment). No real money moves in this prototype. */
+export interface Payment {
+  id: string; receiptNo: string; listingId: string; propertyId: string; advertiserId: string; payerId: string;
+  kind: 'sale_deposit' | 'rent_payment'; installments?: number;
+  items: PayItem[]; vat: number; total: number;
+  method: PayMethod; last4?: string;
+  payerName: string; payerIdLast4: string; payerPhone: string;
+  status: 'paid'; at: string;
+}
+
 export interface State {
   version: number;
   lang: Lang;
@@ -92,4 +104,5 @@ export interface State {
   notices: Notice[];
   reports: Report[];
   adminLog: { id: string; by: string; action: string; at: string }[];
+  payments: Payment[];
 }

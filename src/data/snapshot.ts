@@ -8,5 +8,6 @@ export const SNAPSHOT_AT: string | null = (raw as { exportedAt?: string }).expor
 export function baseState(): State {
   const s = structuredClone(raw) as unknown as State & { exportedAt?: string };
   delete s.exportedAt;
+  s.payments ??= [];
   return s.listings?.length ? s : initialState();
 }

@@ -43,14 +43,16 @@ const { chromium, devices } = require('playwright');
   await p.locator('button:has-text("راسل هذا المعلن")').click(); await wait(800);
   await p.fill('#m-chat-input', 'السلام عليكم، هل الفيلا متاحة للمعاينة؟'); await p.locator('form button[type=submit]').click(); await wait(2000);
   await shot('07-chat');
-  ok('chat: message sent + simulated reply', await p.locator('text=السلام عليكم، هل الفيلا متاحة للمعاينة؟').count() >= 1 && (await p.locator('text=شكراً لتواصلك').count() + await p.locator('text=سأرسل لك التفاصيل').count()) >= 1);
+  await wait(2500);
+  ok('chat: message sent + contextual advertiser reply', await p.locator('text=السلام عليكم، هل الفيلا متاحة للمعاينة؟').count() >= 1 && await p.locator('text=/حياك الله|هلا والله|هلا فيك|يسعدنا نرتب معاينة/').count() >= 1);
   // back out of stack
   for (let i = 0; i < 4; i++) { const back = p.locator('button[aria-label="رجوع"]').last(); if (await back.count()) { await back.click(); await wait(400); } }
 
   await tab('مفتاح AI'); await wait(500);
-  await p.fill('#m-agent-input', 'ابغى فله للبيع بالملقا بحدود ٤ مليون قريبة من مسجد'); await p.keyboard.press('Enter'); await wait(1400);
+  await p.fill('#m-agent-input', 'ابغى فله للبيع بالملقا بحدود ٤ مليون قريبة من مسجد'); await p.keyboard.press('Enter'); await wait(3000);
+  await p.fill('#m-agent-input', 'اعرض النتائج'); await p.keyboard.press('Enter'); await wait(3000);
   await shot('08-ai');
-  ok('AI: Arabic query returns matches', await p.locator('text=وجدت').count() >= 1 && await p.locator('text=لماذا هذا الترشيح؟').count() >= 1);
+  ok('AI: Arabic conversation returns recommendation', await p.locator('text=ترشيحي الأول').count() >= 1 && await p.locator('text=لماذا هذا الترشيح؟').count() >= 1);
   await tab('الرسائل'); await wait(500); await shot('09-inbox');
   ok('inbox lists conversations', await p.locator('.screen button.tap', { hasText: 'السلام' }).count() + (await p.locator('text=شكراً لتواصلك').count() + await p.locator('text=سأرسل لك التفاصيل').count()) >= 1);
   await tab('حسابي'); await wait(500); await shot('10-profile');

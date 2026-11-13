@@ -1,7 +1,7 @@
 import { createContext, useCallback, useContext, useMemo, useState, type ReactNode } from 'react';
 
 export type Tab = 'home' | 'search' | 'ai' | 'messages' | 'profile' | 'dashboard' | 'reviews';
-export type ScreenName = 'property' | 'compare' | 'chat' | 'add' | 'saved' | 'notifications' | 'search' | 'ai' | 'listing' | 'accounts' | 'messages';
+export type ScreenName = 'property' | 'compare' | 'chat' | 'add' | 'saved' | 'notifications' | 'search' | 'ai' | 'listing' | 'accounts' | 'messages' | 'pay' | 'receipt' | 'payments';
 export interface Route { key: number; name: ScreenName; params: Record<string, any>; leaving?: boolean }
 
 interface Nav {

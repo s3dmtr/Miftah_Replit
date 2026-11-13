@@ -306,5 +306,6 @@ export function initialState(): State {
     notices: [],
     reports: [{ id: 'r1', listingId: listings.find((l) => l.propertyId === 'p20')!.id, by: 'u-seeker', reason: 'Photos do not match the description', at: '2026-11-12T16:40:00', open: true }],
     adminLog: [],
+    payments: [],
   };
 }

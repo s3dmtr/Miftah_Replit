@@ -159,7 +159,10 @@ export function PropertyScreen({ id, offer }: { id: string; offer?: string }) {
             <PriceTag n={l.price} deal={l.deal} className="text-[17px]" short />
           </div>
           {canMessage
-            ? <PrimaryBtn className="flex-1" onClick={() => void message()}><MessageCircle size={18} />{tx('راسل المعلن', 'Message advertiser')}</PrimaryBtn>
+            ? <>
+                <PrimaryBtn tone="ghost" className="!px-4" onClick={() => void message()}><MessageCircle size={18} /><span className="sr-only">{tx('راسل المعلن', 'Message advertiser')}</span></PrimaryBtn>
+                <PrimaryBtn className="flex-1" tone="gold" onClick={() => nav.push('pay', { listingId: l.id })}>{l.deal === 'sale' ? tx('احجز الآن', 'Book now') : tx('ادفع الإيجار', 'Pay rent')}</PrimaryBtn>
+              </>
             : <PrimaryBtn className="flex-1" tone="ghost" disabled>{closed ? tx('غير متاح', 'Not available') : l.advertiserId === me.advertiserId ? tx('إعلانك', 'Your ad') : tx('للعرض فقط', 'View only')}</PrimaryBtn>}
         </div>
       </div>

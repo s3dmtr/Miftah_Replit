@@ -16,7 +16,19 @@ export interface Prefs {
   areaMin?: number;
   amenities?: PoiCat[];
   features?: string[];
+  // Conversation memory (used by conversation.ts): which questions were asked, what was shown, explicit "no preference" answers.
+  asked?: Slot[];
+  last?: Slot;
+  shown?: string[];
+  anyDistrict?: boolean;
+  noPriority?: boolean;
+  noBudget?: boolean;
+  family?: number;
+  financing?: boolean;
+  financingNoted?: boolean;
+  focus?: number;
 }
+export type Slot = 'deal' | 'type' | 'district' | 'budget' | 'rooms' | 'priority';
 
 export interface Criterion { ok: 'yes' | 'partial' | 'no'; text: L10n }
 export interface Match { listing: Listing; property: Property; score: number; criteria: Criterion[]; offers: number }
